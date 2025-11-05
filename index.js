@@ -229,6 +229,47 @@ app.get('/api/consult/:chatSessionId', (req, res) => {
   }
 })
 
+// POST /api/patienten/test - Voeg handmatig een test patiënt toe (voor testing)
+app.post('/api/patienten/test', (req, res) => {
+  try {
+    const { praktijk = 1 } = req.body
+    
+    // Test patiënt object
+    const testPatient = {
+      id: 'test_' + Date.now(),
+      naam: 'Test Patiënt',
+      leeftijd: 45,
+      geslacht: 'Man',
+      klacht: 'Acute kniepijn na val tijdens hardlopen',
+      domein: 'Acute Knie',
+      mechanisme: 'Tijdens hardlopen in het park uitgegleden op nat gras, direct pijn in rechter knie',
+      momentVanTrauma: '2 dagen geleden',
+      hoofdklachten: [
+        'Pijn in rechter knie bij belasting',
+        'Beperkte buiging en strekking',
+        'Zwelling rondom de knie'
+      ],
+      medischeHistorie: 'Geen relevante medische voorgeschiedenis',
+      status: 'Nieuw',
+      praktijk: praktijk,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }
+    
+    // Voeg toe aan database
+    addPatients([testPatient])
+    
+    res.json({
+      success: true,
+      message: 'Test patiënt toegevoegd',
+      patient: testPatient
+    })
+  } catch (error) {
+    console.error('Fout bij toevoegen test patiënt:', error)
+    res.status(500).json({ error: 'Fout bij toevoegen test patiënt', details: error.message })
+  }
+})
+
 app.listen(port, () => {
   console.log(`[server] listening on http://localhost:${port}`)
   console.log(`[server] GEMINI_API_KEY: ${process.env.GEMINI_API_KEY ? '✓ Ingesteld' : '✗ NIET INGESTELD'}`)
