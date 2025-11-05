@@ -1,0 +1,25 @@
+# Environment variables (BEVAT GEVOELIGE INFORMATIE!)
+.env
+
+# Node modules (worden geïnstalleerd via npm install)
+node_modules/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Data bestanden (lokaal, worden online opnieuw gegenereerd)
+data/
+*.json
+!package.json
+!package-lock.json
+
+# OS bestanden
+.DS_Store
+Thumbs.db
+
+# Editor bestanden
+.vscode/
+.idea/
+*.swp
+*.swo
