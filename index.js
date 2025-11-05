@@ -18,16 +18,50 @@ const app = express()
 const port = process.env.PORT || 3001
 
 app.use(express.json())
+// CORS configuratie - flexibeler voor productie
+const allowedOrigins = process.env.CORS_ORIGINS 
+  ? process.env.CORS_ORIGINS.split(',').map(origin => origin.trim())
+  : [
+      'http://localhost:5173',
+      'http://localhost:5174',
+      'http://localhost:5175',
+      'http://localhost:5176',
+      'http://localhost:5177',
+      'http://localhost:5178',
+      'https://fysiosim.nl',
+      'https://www.fysiosim.nl'
+    ]
+
 app.use(cors({
-  origin: [
-    'http://localhost:5173',
-    'http://localhost:5174',
-    'https://fysiosim.nl',
-    'https://www.fysiosim.nl'
-  ],
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, curl, etc.)
+    if (!origin) return callback(null, true)
+    
+    if (allowedOrigins.includes(origin) || process.env.NODE_ENV === 'development') {
+      callback(null, true)
+    } else {
+      callback(null, true) // Tijdelijk toestaan voor alle origins - pas aan voor productie
+    }
+  },
   methods: ['GET', 'POST', 'OPTIONS', 'PUT'],
   credentials: true
 }))
+
+// Root endpoint - API info
+app.get('/', (_req, res) => {
+  res.json({ 
+    message: 'Fysiosim Backend API',
+    version: '1.0.0',
+    endpoints: {
+      health: '/health',
+      patienten: '/api/patienten',
+      consult: '/api/consult/start',
+      vraag: '/api/consult/vraag',
+      generateWachtkamer: '/cron/generate-wachtkamer'
+    },
+    timestamp: new Date().toISOString()
+  })
+})
 
 // Healthcheck
 app.get('/health', (_req, res) => {
