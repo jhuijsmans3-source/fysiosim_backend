@@ -9,20 +9,74 @@ const DATA_DIR = path.join(__dirname, '../../data')
 const PATIENTS_FILE = path.join(DATA_DIR, 'patients.json')
 const CHAT_SESSIONS_FILE = path.join(DATA_DIR, 'chatSessions.json')
 
-// Zorg dat data directory bestaat
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true })
+// In-memory database als fallback (voor Render.com ephemeral filesystem)
+let inMemoryPatients = []
+let inMemoryChatSessions = []
+let useInMemory = false
+
+// Detecteer of we in een ephemeral environment zitten (zoals Render.com)
+const isEphemeral = process.env.RENDER || process.env.NODE_ENV === 'production'
+
+/**
+ * Probeer bestand te lezen, retourneer null als het niet bestaat
+ */
+function tryReadFile(filePath) {
+  try {
+    if (fs.existsSync(filePath)) {
+      const data = fs.readFileSync(filePath, 'utf8')
+      return JSON.parse(data)
+    }
+  } catch (error) {
+    console.warn(`Kon bestand niet lezen ${filePath}:`, error.message)
+  }
+  return null
 }
 
 /**
- * Initialiseer database files als ze niet bestaan
+ * Probeer bestand te schrijven
+ */
+function tryWriteFile(filePath, data) {
+  try {
+    // Zorg dat directory bestaat
+    const dir = path.dirname(filePath)
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true })
+    }
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2))
+    return true
+  } catch (error) {
+    console.warn(`Kon bestand niet schrijven ${filePath}:`, error.message)
+    return false
+  }
+}
+
+/**
+ * Initialiseer database - probeer eerst file system, anders in-memory
  */
 function initDatabase() {
-  if (!fs.existsSync(PATIENTS_FILE)) {
-    fs.writeFileSync(PATIENTS_FILE, JSON.stringify([], null, 2))
+  if (isEphemeral) {
+    console.log('[database] Ephemeral environment gedetecteerd, gebruik in-memory storage')
+    useInMemory = true
+    inMemoryPatients = []
+    inMemoryChatSessions = []
+    return
   }
-  if (!fs.existsSync(CHAT_SESSIONS_FILE)) {
-    fs.writeFileSync(CHAT_SESSIONS_FILE, JSON.stringify([], null, 2))
+
+  // Probeer file system te gebruiken
+  const patientsData = tryReadFile(PATIENTS_FILE)
+  const sessionsData = tryReadFile(CHAT_SESSIONS_FILE)
+
+  if (patientsData === null) {
+    tryWriteFile(PATIENTS_FILE, [])
+  }
+  if (sessionsData === null) {
+    tryWriteFile(CHAT_SESSIONS_FILE, [])
+  }
+
+  // Als schrijven niet lukt, gebruik in-memory
+  if (!tryWriteFile(PATIENTS_FILE, patientsData || [])) {
+    console.log('[database] File system niet beschikbaar, gebruik in-memory storage')
+    useInMemory = true
   }
 }
 
@@ -34,8 +88,14 @@ initDatabase()
  */
 export function getPatients(praktijk = null) {
   try {
-    const data = fs.readFileSync(PATIENTS_FILE, 'utf8')
-    const patients = JSON.parse(data)
+    let patients = []
+    
+    if (useInMemory) {
+      patients = [...inMemoryPatients]
+    } else {
+      const data = tryReadFile(PATIENTS_FILE)
+      patients = data || []
+    }
     
     // Filter op praktijk als opgegeven
     if (praktijk !== null) {
@@ -54,11 +114,27 @@ export function getPatients(praktijk = null) {
  */
 export function savePatients(patients) {
   try {
-    fs.writeFileSync(PATIENTS_FILE, JSON.stringify(patients, null, 2))
-    return true
+    if (useInMemory) {
+      inMemoryPatients = [...patients]
+      console.log(`[database] ${patients.length} patiënten opgeslagen in-memory`)
+      return true
+    } else {
+      if (tryWriteFile(PATIENTS_FILE, patients)) {
+        return true
+      } else {
+        // Fallback naar in-memory als schrijven faalt
+        console.log('[database] Fallback naar in-memory storage')
+        useInMemory = true
+        inMemoryPatients = [...patients]
+        return true
+      }
+    }
   } catch (error) {
     console.error('Fout bij opslaan patiënten:', error)
-    return false
+    // Fallback naar in-memory
+    useInMemory = true
+    inMemoryPatients = [...patients]
+    return true
   }
 }
 
@@ -107,8 +183,12 @@ function generateId() {
  */
 export function getChatSessions() {
   try {
-    const data = fs.readFileSync(CHAT_SESSIONS_FILE, 'utf8')
-    return JSON.parse(data)
+    if (useInMemory) {
+      return [...inMemoryChatSessions]
+    } else {
+      const data = tryReadFile(CHAT_SESSIONS_FILE)
+      return data || []
+    }
   } catch (error) {
     console.error('Fout bij lezen chat sessies:', error)
     return []
@@ -129,11 +209,27 @@ export function saveChatSession(session) {
       sessions.push(session)
     }
     
-    fs.writeFileSync(CHAT_SESSIONS_FILE, JSON.stringify(sessions, null, 2))
-    return session
+    if (useInMemory) {
+      inMemoryChatSessions = [...sessions]
+      return session
+    } else {
+      if (tryWriteFile(CHAT_SESSIONS_FILE, sessions)) {
+        return session
+      } else {
+        // Fallback naar in-memory
+        useInMemory = true
+        inMemoryChatSessions = [...sessions]
+        return session
+      }
+    }
   } catch (error) {
     console.error('Fout bij opslaan chat sessie:', error)
-    return null
+    // Fallback naar in-memory
+    useInMemory = true
+    const sessions = getChatSessions()
+    sessions.push(session)
+    inMemoryChatSessions = [...sessions]
+    return session
   }
 }
 

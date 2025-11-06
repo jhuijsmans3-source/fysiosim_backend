@@ -75,8 +75,16 @@ app.get('/api/patienten', (req, res) => {
     const patients = getPatients(praktijk)
     // Filter alleen patiënten met status 'Nieuw' of 'InBehandeling'
     const activePatients = patients.filter(p => p.status === 'Nieuw' || p.status === 'InBehandeling')
-    res.json({ patienten: activePatients })
+    
+    console.log(`[api] GET /api/patienten?praktijk=${praktijk || 'alle'} - ${activePatients.length} actieve patiënten`)
+    
+    res.json({ 
+      patienten: activePatients,
+      totaal: activePatients.length,
+      praktijk: praktijk || 'alle'
+    })
   } catch (error) {
+    console.error('[api] Fout bij ophalen patiënten:', error)
     res.status(500).json({ error: 'Server error', details: error.message })
   }
 })
@@ -259,10 +267,14 @@ app.post('/api/patienten/test', (req, res) => {
     // Voeg toe aan database
     addPatients([testPatient])
     
+    const allPatients = getPatients(praktijk)
+    console.log(`[test] Test patiënt toegevoegd aan praktijk ${praktijk}. Totaal patiënten: ${allPatients.length}`)
+    
     res.json({
       success: true,
       message: 'Test patiënt toegevoegd',
-      patient: testPatient
+      patient: testPatient,
+      totalPatients: allPatients.length
     })
   } catch (error) {
     console.error('Fout bij toevoegen test patiënt:', error)
@@ -270,8 +282,66 @@ app.post('/api/patienten/test', (req, res) => {
   }
 })
 
-app.listen(port, () => {
+// POST /api/patienten/generate - Genereer patiënten zonder secret key (voor testing)
+app.post('/api/patienten/generate', async (req, res) => {
+  try {
+    const { praktijk = 1, aantal = 4 } = req.body
+    const domeinen = req.body.domeinen || ['Acute Knie', 'Schouder', 'Lage Rug']
+    
+    console.log(`[generate] Genereren van ${aantal} patiënten voor praktijk ${praktijk}`)
+    
+    // Genereer patiënten
+    const nieuwePatienten = await generateWachtkamer(domeinen)
+    const patientsWithIds = addIdsToPatients(nieuwePatienten.slice(0, aantal), praktijk)
+    addPatients(patientsWithIds)
+    
+    const allPatients = getPatients(praktijk)
+    console.log(`[generate] ${patientsWithIds.length} patiënten gegenereerd. Totaal: ${allPatients.length}`)
+    
+    res.json({
+      success: true,
+      message: `${patientsWithIds.length} patiënten gegenereerd voor praktijk ${praktijk}`,
+      patienten: patientsWithIds,
+      praktijk: praktijk,
+      totalPatients: allPatients.length,
+      timestamp: new Date().toISOString()
+    })
+  } catch (error) {
+    console.error('Fout bij genereren patiënten:', error)
+    res.status(500).json({ error: 'Fout bij genereren patiënten', details: error.message })
+  }
+})
+
+// Initialiseer met test patiënten als database leeg is (alleen in productie)
+async function initializeWithTestPatients() {
+  if (process.env.RENDER || process.env.NODE_ENV === 'production') {
+    const allPatients = getPatients()
+    if (allPatients.length === 0) {
+      console.log('[init] Database is leeg, genereer test patiënten voor alle praktijken...')
+      try {
+        const domeinen = ['Acute Knie', 'Schouder', 'Lage Rug']
+        for (let praktijkNum = 1; praktijkNum <= 6; praktijkNum++) {
+          const nieuwePatienten = await generateWachtkamer(domeinen)
+          const patientsWithIds = addIdsToPatients(nieuwePatienten, praktijkNum)
+          addPatients(patientsWithIds)
+          console.log(`[init] ${patientsWithIds.length} patiënten gegenereerd voor praktijk ${praktijkNum}`)
+        }
+        console.log('[init] Initialisatie voltooid')
+      } catch (error) {
+        console.error('[init] Fout bij initialiseren test patiënten:', error.message)
+      }
+    } else {
+      console.log(`[init] Database bevat al ${allPatients.length} patiënten`)
+    }
+  }
+}
+
+app.listen(port, async () => {
   console.log(`[server] listening on http://localhost:${port}`)
   console.log(`[server] GEMINI_API_KEY: ${process.env.GEMINI_API_KEY ? '✓ Ingesteld' : '✗ NIET INGESTELD'}`)
   console.log(`[server] CRON_SECRET_KEY: ${process.env.CRON_SECRET_KEY ? '✓ Ingesteld' : '⚠ Gebruikt default'}`)
+  console.log(`[server] Environment: ${process.env.RENDER ? 'Render.com' : process.env.NODE_ENV || 'development'}`)
+  
+  // Initialiseer test patiënten bij start (alleen als database leeg is)
+  await initializeWithTestPatients()
 })
